@@ -710,19 +710,19 @@ QString FormatReadDate(TimeId date, const QDateTime &now) {
 		return tr::lng_mediaview_today(
 			tr::now,
 			lt_time,
-			QLocale().toString(parsed.time(), QLocale::ShortFormat));
+			parsed.time().toString(QStringLiteral("hh:mm:ss")));
 	} else if (readDate.addDays(1) == nowDate) {
 		return tr::lng_mediaview_yesterday(
 			tr::now,
 			lt_time,
-			QLocale().toString(parsed.time(), QLocale::ShortFormat));
+			parsed.time().toString(QStringLiteral("hh:mm:ss")));
 	}
 	return tr::lng_mediaview_date_time(
 		tr::now,
 		lt_date,
 		langDayOfMonthShort(readDate),
 		lt_time,
-		QLocale().toString(parsed.time(), QLocale::ShortFormat));
+		parsed.time().toString(QStringLiteral("hh:mm:ss")));
 }
 
 bool WhoReadExists(not_null<HistoryItem*> item) {

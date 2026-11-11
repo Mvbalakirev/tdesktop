@@ -2504,7 +2504,7 @@ void AddWhenEditedForwardedAuthorActionHelper(
 						lt_date,
 						langDayOfMonthShort(sent.date()),
 						lt_time,
-						QLocale().toString(sent.time(), QLocale::ShortFormat))));
+						sent.time().toString(QStringLiteral("hh:mm:ss")))));
 				label->setAttribute(Qt::WA_TransparentForMouseEvents);
 				menu->addAction(std::move(label));
 			} else {
