@@ -1,0 +1,105 @@
+name: Linux Release (Manual)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  linux-release:
+    name: Linux Release Build
+    runs-on: ubuntu-latest
+
+    env:
+      IMAGE_TAG: tdesktop:centos_env-fixed
+
+    steps:
+      - name: Check API secrets
+        env:
+          TDESKTOP_API_ID: ${{ secrets.TDESKTOP_API_ID }}
+          TDESKTOP_API_HASH: ${{ secrets.TDESKTOP_API_HASH }}
+        run: |
+          if [ -z "$TDESKTOP_API_ID" ] || [ -z "$TDESKTOP_API_HASH" ]; then
+            echo "Error: TDESKTOP_API_ID or TDESKTOP_API_HASH is not set in repository secrets!"
+            exit 1
+          fi
+
+      - name: Free up disk space
+        uses: jlumbroso/free-disk-space@ceedf095f4ec1a097402bc6bd80831f2e1a6fde6
+        with:
+          tool-cache: true
+
+      - name: Clone repository
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Install ccache
+        run: |
+          curl -sSL https://github.com/ccache/ccache/releases/download/v4.13.6/ccache-4.13.6-linux-x86_64-glibc.tar.xz \
+          | sudo tar xJ -C /usr/local/bin --strip-components=1 ccache-4.13.6-linux-x86_64-glibc/ccache
+          echo "CCACHE_DIR=$RUNNER_TEMP/.tdesktop-cache" >> $GITHUB_ENV
+
+      - name: Pull and fix expat in centos_env
+        run: |
+          docker pull ghcr.io/telegramdesktop/tdesktop/centos_env:latest
+          printf 'FROM ghcr.io/telegramdesktop/tdesktop/centos_env:latest\nUSER root\nRUN dnf upgrade -y expat && dnf clean all\n' | docker build -t ${{ env.IMAGE_TAG }} -
+          docker run --rm ${{ env.IMAGE_TAG }} /usr/bin/python3.12 -c "import xml.etree.ElementTree as ET; ET.fromstring('<a/>'); print('pyexpat OK')"
+
+      - name: Restore ccache
+        id: cache-tdesktop
+        uses: actions/cache/restore@v6
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: ${{ runner.OS }}-tdesktop-release-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: ${{ runner.OS }}-tdesktop-release-
+
+      - name: Build Telegram Desktop (Release)
+        id: build
+        env:
+          TDESKTOP_API_ID: ${{ secrets.TDESKTOP_API_ID }}
+          TDESKTOP_API_HASH: ${{ secrets.TDESKTOP_API_HASH }}
+        run: |
+          mkdir -p "$CCACHE_DIR"
+          ccache -M 4G
+          ccache -z
+
+          docker run --rm \
+          -u $(id -u) \
+          -v $PWD:/usr/src/tdesktop \
+          -v ${{ env.CCACHE_DIR }}:/var/cache/ccache \
+          -e CONFIG=Release \
+          -e CCACHE_SLOPPINESS=pch_defines,time_macros \
+          ${{ env.IMAGE_TAG }} \
+          env -u CCACHE_DISABLE /usr/src/tdesktop/Telegram/build/docker/centos_env/build.sh \
+          -D CMAKE_CONFIGURATION_TYPES=Release \
+          -D CMAKE_COMPILE_WARNING_AS_ERROR=OFF \
+          -D DESKTOP_APP_DISABLE_AUTOUPDATE=ON \
+          -D DESKTOP_APP_DISABLE_CRASH_REPORTS=ON \
+          -D TDESKTOP_API_ID="$TDESKTOP_API_ID" \
+          -D TDESKTOP_API_HASH="$TDESKTOP_API_HASH"
+
+      - name: Save ccache
+        if: always() && steps.build.outcome != 'skipped'
+        uses: actions/cache/save@v6
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: ${{ steps.cache-tdesktop.outputs.cache-primary-key }}
+
+      - name: Verify binary
+        run: |
+          filePath="out/Release/Telegram"
+          if test -f "$filePath"; then
+            echo "Build successfully done!"
+            size=$(stat -c %s "$filePath")
+            echo "File size of ${filePath}: ${size} Bytes."
+          else
+            echo "Build error, output file does not exist."
+            exit 1
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: Telegram
+          path: out/Release/Telegram
+          archive: false
+          retention-days: 2
